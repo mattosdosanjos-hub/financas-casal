@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finanças">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Finanças do Casal</title>
+
+  <!-- =====================================================
+       ATENÇÃO: SUBSTITUA A URL ABAIXO PELA URL DO SEU
+       GOOGLE APPS SCRIPT WEB APP (instrução no final)
+  ====================================================== -->
+  <script>
+    const APPS_SCRIPT_URL = 'COLE_AQUI_A_URL_DO_SEU_WEB_APP';
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ---- Reset & Base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0a0a0a;
+      --surface:    #141414;
+      --surface2:   #1e1e1e;
+      --border:     #2a2a2a;
+      --accent:     #c8f135;
+      --accent-dim: #8aaa20;
+      --text:       #f0f0f0;
+      --text-muted: #666;
+      --text-dim:   #999;
+      --red:        #ff4d4d;
+      --green:      #c8f135;
+      --blue:       #4d9fff;
+      --radius:     14px;
+      --radius-sm:  8px;
+      --font-main:  'DM Sans', sans-serif;
+      --font-mono:  'DM Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
+    }
+
+    /* ---- Layout ---- */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      padding: 16px 20px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-title {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .header-date {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ---- Tabs ---- */
+    .tabs {
+      display: flex;
+      padding: 12px 20px 0;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      background: var(--surface);
+      color: var(--text-muted);
+      font-family: var(--font-main);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab.active {
+      background: var(--surface2);
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ---- Scroll container ---- */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+
+    .panel {
+      display: none;
+      padding: 16px 20px 32px;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    /* ---- Resumo cards ---- */
+    .resumo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .resumo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .resumo-card.full {
+      grid-column: 1 / -1;
+    }
+
+    .resumo-card.destaque {
+      border-color: var(--accent);
+      background: rgba(200, 241, 53, 0.04);
+    }
+
+    .card-label {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .card-value {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .card-value.green { color: var(--green); }
+    .card-value.red   { color: var(--red); }
+    .card-value.blue  { color: var(--blue); }
+
+    .card-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ---- Barra de progresso ---- */
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 99px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 99px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ---- Indicador síntese ---- */
+    .indicador {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .indicador.verde  { border-color: var(--green); background: rgba(200,241,53,0.06); color: var(--green); }
+    .indicador.amarelo { border-color: #f0a500; background: rgba(240,165,0,0.06); color: #f0a500; }
+    .indicador.vermelho { border-color: var(--red); background: rgba(255,77,77,0.06); color: var(--red); }
+
+    .indicador-icon { font-size: 18px; flex-shrink: 0; }
+
+    /* ---- Seção de alertas ---- */
+    .alertas-titulo {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .alerta-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .btn-atualizar {
+      width: 100%;
+      padding: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-dim);
+      font-family: var(--font-main);
+      font-size: 13px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-atualizar:active { background: var(--border); }
+
+    /* ---- Formulário ---- */
+    .form-section {
+      margin-bottom: 6px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .form-input,
+    .form-select {
+      width: 100%;
+      padding: 13px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-main);
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+      border-color: var(--accent);
+    }
+
+    .form-input::placeholder { color: var(--text-muted); }
+
+    /* Select customizado */
+    .select-wrapper {
+      position: relative;
+    }
+
+    .select-wrapper::after {
+      content: '▾';
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+      font-size: 14px;
+    }
+
+    .form-select option {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    /* Grid 2 colunas */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    /* Tipo selector — botões visuais */
+    .tipo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .tipo-btn {
+      padding: 10px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text-muted);
+      font-family: var(--font-main);
+      font-size: 12px;
+      font-weight: 500;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tipo-btn .tipo-icon { display: block; font-size: 18px; margin-bottom: 3px; }
+
+    .tipo-btn[data-tipo="Gasto"].selected    { border-color: var(--red);   background: rgba(255,77,77,0.1);   color: var(--red);   }
+    .tipo-btn[data-tipo="Receita"].selected  { border-color: var(--green); background: rgba(200,241,53,0.1); color: var(--green); }
+    .tipo-btn[data-tipo="Investimento"].selected { border-color: var(--blue); background: rgba(77,159,255,0.1); color: var(--blue); }
+
+    /* Divisor */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 14px 0;
+    }
+
+    /* ---- Botão enviar ---- */
+    .btn-submit {
+      width: 100%;
+      padding: 16px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      color: #0a0a0a;
+      font-family: var(--font-main);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: all 0.15s;
+      letter-spacing: 0.01em;
+    }
+
+    .btn-submit:active { transform: scale(0.98); background: var(--accent-dim); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* ---- Toast / feedback ---- */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 12px 24px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      z-index: 100;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      white-space: nowrap;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.success { border-color: var(--green); color: var(--green); }
+    .toast.error   { border-color: var(--red);   color: var(--red);   }
+
+    /* ---- Loading spinner ---- */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(10,10,10,0.3);
+      border-top-color: #0a0a0a;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- Config panel ---- */
+    .config-info {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .config-info p {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .config-info p:last-child { margin-bottom: 0; }
+
+    .config-info code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--surface2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    .config-input-group {
+      margin-bottom: 10px;
+    }
+
+    .instrucao-numero {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      background: var(--accent);
+      color: #0a0a0a;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+
+    .instrucao-linha {
+      display: flex;
+      align-items: flex-start;
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+
+    /* Scrollbar invisível mas funcional */
+    .content::-webkit-scrollbar { width: 0; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-title">💰 Finanças</div>
+    <div class="header-date" id="headerDate"></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="mudarAba('lancamento')">Lançamento</button>
+    <button class="tab" onclick="mudarAba('resumo')">Resumo</button>
+    <button class="tab" onclick="mudarAba('config')">Config</button>
+  </div>
+
+  <!-- CONTEÚDO -->
+  <div class="content">
+
+    <!-- ==================== ABA: LANÇAMENTO ==================== -->
+    <div class="panel active" id="panel-lancamento">
+
+      <!-- Tipo (Gasto / Receita / Investimento) -->
+      <div class="form-section">
+        <label class="form-label">Tipo</label>
+        <div class="tipo-grid">
+          <div class="tipo-btn selected" data-tipo="Gasto" onclick="selecionarTipo(this)">
+            <span class="tipo-icon">💸</span>Gasto
+          </div>
+          <div class="tipo-btn" data-tipo="Receita" onclick="selecionarTipo(this)">
+            <span class="tipo-icon">💰</span>Receita
+          </div>
+          <div class="tipo-btn" data-tipo="Investimento" onclick="selecionarTipo(this)">
+            <span class="tipo-icon">📈</span>Invest.
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Descrição -->
+      <div class="form-section">
+        <label class="form-label" for="descricao">Descrição</label>
+        <input
+          class="form-input"
+          type="text"
+          id="descricao"
+          placeholder="Ex: iFood jantar"
+          autocomplete="off"
+          autocorrect="off"
+        >
+      </div>
+
+      <!-- Valor e Data -->
+      <div class="form-row form-section">
+        <div>
+          <label class="form-label" for="valor">Valor (R$)</label>
+          <input
+            class="form-input"
+            type="number"
+            id="valor"
+            placeholder="0,00"
+            inputmode="decimal"
+            min="0"
+            step="0.01"
+          >
+        </div>
+        <div>
+          <label class="form-label" for="data">Data</label>
+          <input
+            class="form-input"
+            type="date"
+            id="data"
+          >
+        </div>
+      </div>
+
+      <!-- Categoria -->
+      <div class="form-section">
+        <label class="form-label" for="categoria">Categoria</label>
+        <div class="select-wrapper">
+          <select class="form-select" id="categoria">
+            <option value="">Selecionar...</option>
+            <option>Alimentação</option>
+            <option>Moradia</option>
+            <option>Transporte</option>
+            <option>Saúde/Esporte</option>
+            <option>Lazer</option>
+            <option>Serviços</option>
+            <option>Educação/Trabalho</option>
+            <option>Vestuário</option>
+            <option>Saúde</option>
+            <option>Investimento</option>
+            <option>Presente/Outros</option>
+            <option>Receita</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Pagamento -->
+      <div class="form-section">
+        <label class="form-label" for="pagamento">Pagamento</label>
+        <div class="select-wrapper">
+          <select class="form-select" id="pagamento">
+            <option value="">Selecionar...</option>
+            <option>Nubank Tiago</option>
+            <option>C6 Tiago</option>
+            <option>Sicoob Tiago</option>
+            <option>BRB Maria</option>
+            <option>Nubank ME</option>
+            <option>BB Tiago</option>
+            <option>Itaú ME</option>
+            <option>Dinheiro</option>
+            <option>Pix</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Parcela e Observação -->
+      <div class="form-row form-section">
+        <div>
+          <label class="form-label" for="parcela">Parcelas</label>
+          <input
+            class="form-input"
+            type="number"
+            id="parcela"
+            placeholder="Ex: 6 (se parcelado)"
+            inputmode="numeric"
+            min="1"
+          >
+        </div>
+        <div>
+          <label class="form-label" for="observacao">Observação</label>
+          <input
+            class="form-input"
+            type="text"
+            id="observacao"
+            placeholder="Opcional"
+            autocomplete="off"
+          >
+        </div>
+      </div>
+
+      <!-- Botão enviar -->
+      <button class="btn-submit" id="btnEnviar" onclick="enviarLancamento()">
+        Lançar
+      </button>
+
+    </div><!-- /panel-lancamento -->
+
+
+    <!-- ==================== ABA: RESUMO ==================== -->
+    <div class="panel" id="panel-resumo">
+
+      <!-- Cards principais -->
+      <div class="resumo-grid">
+        <div class="resumo-card">
+          <div class="card-label">💰 Receita</div>
+          <div class="card-value green" id="r-receita">—</div>
+          <div class="card-sub" id="r-mes">carregando...</div>
+        </div>
+        <div class="resumo-card">
+          <div class="card-label">💸 Gasto</div>
+          <div class="card-value red" id="r-gasto">—</div>
+        </div>
+        <div class="resumo-card">
+          <div class="card-label">📈 Investido</div>
+          <div class="card-value blue" id="r-investido">—</div>
+        </div>
+        <div class="resumo-card destaque">
+          <div class="card-label">✅ Saldo</div>
+          <div class="card-value" id="r-saldo">—</div>
+        </div>
+      </div>
+
+      <!-- Indicador síntese -->
+      <div class="indicador verde" id="indicador">
+        <span class="indicador-icon">⏳</span>
+        <span id="indicador-texto">Carregando dados...</span>
+      </div>
+
+      <!-- Meta -->
+      <div class="resumo-card full" style="margin-bottom:16px">
+        <div class="card-label">🎯 Meta R$ 100.000</div>
+        <div class="card-value" id="r-meta-valor">—</div>
+        <div class="card-sub" id="r-meta-falta"></div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="r-meta-barra" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Alertas -->
+      <div class="alertas-titulo">🔔 Alertas</div>
+      <div id="alertas-lista">
+        <div class="alerta-item">Clique em atualizar para carregar alertas</div>
+      </div>
+
+      <button class="btn-atualizar" onclick="carregarResumo()">
+        ↻ Atualizar dados
+      </button>
+
+    </div><!-- /panel-resumo -->
+
+
+    <!-- ==================== ABA: CONFIG ==================== -->
+    <div class="panel" id="panel-config">
+
+      <div class="config-info">
+        <p><strong style="color:var(--text)">Como conectar ao Google Sheets</strong></p>
+        <p>Este app precisa de uma URL do seu Apps Script para enviar os lançamentos. Siga os passos:</p>
+      </div>
+
+      <div class="instrucao-linha">
+        <span class="instrucao-numero">1</span>
+        <span>Abra a planilha → <strong>Extensões → Apps Script</strong></span>
+      </div>
+      <div class="instrucao-linha">
+        <span class="instrucao-numero">2</span>
+        <span>No editor, clique em <strong>Implantar → Nova implantação</strong></span>
+      </div>
+      <div class="instrucao-linha">
+        <span class="instrucao-numero">3</span>
+        <span>Tipo: <strong>App da Web</strong> → Executar como: <strong>Eu</strong> → Quem tem acesso: <strong>Qualquer pessoa</strong></span>
+      </div>
+      <div class="instrucao-linha">
+        <span class="instrucao-numero">4</span>
+        <span>Clique em <strong>Implantar</strong> e copie a URL gerada</span>
+      </div>
+      <div class="instrucao-linha">
+        <span class="instrucao-numero">5</span>
+        <span>Cole a URL abaixo e salve</span>
+      </div>
+
+      <div class="config-input-group">
+        <label class="form-label" for="urlConfig">URL do Web App</label>
+        <input
+          class="form-input"
+          type="url"
+          id="urlConfig"
+          placeholder="https://script.google.com/macros/s/..."
+          autocomplete="off"
+        >
+      </div>
+
+      <button class="btn-submit" onclick="salvarConfig()" style="margin-bottom:16px">
+        Salvar URL
+      </button>
+
+      <div class="config-info">
+        <p><strong style="color:var(--text)">Instalar na tela inicial (iOS)</strong></p>
+        <p>Safari → botão compartilhar <code>⬆</code> → <strong>Adicionar à Tela de Início</strong></p>
+        <p><strong style="color:var(--text)">Instalar na tela inicial (Android)</strong></p>
+        <p>Chrome → menu <code>⋮</code> → <strong>Adicionar à tela inicial</strong></p>
+      </div>
+
+    </div><!-- /panel-config -->
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+
+<script>
+// ============================================================
+// ESTADO DA APLICAÇÃO
+// ============================================================
+let tipoSelecionado = 'Gasto';
+let urlScript = localStorage.getItem('financas_url') || APPS_SCRIPT_URL;
+
+// ============================================================
+// INICIALIZAÇÃO
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  // Data de hoje no campo de data
+  const hoje = new Date();
+  const dataFormatada = hoje.toISOString().split('T')[0];
+  document.getElementById('data').value = dataFormatada;
+
+  // Data no header
+  const opcoes = { weekday: 'short', day: 'numeric', month: 'short' };
+  document.getElementById('headerDate').textContent =
+    hoje.toLocaleDateString('pt-BR', opcoes);
+
+  // Carregar URL salva
+  if (urlScript && urlScript !== 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
+    document.getElementById('urlConfig').value = urlScript;
+  }
+
+  // Registrar Service Worker para PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('#').catch(() => {});
+  }
+});
+
+// ============================================================
+// NAVEGAÇÃO ENTRE ABAS
+// ============================================================
+function mudarAba(aba) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+  document.getElementById('panel-' + aba).classList.add('active');
+  event.currentTarget.classList.add('active');
+
+  if (aba === 'resumo') carregarResumo();
+  if (aba === 'config') {
+    document.getElementById('urlConfig').value = urlScript || '';
+  }
+}
+
+// ============================================================
+// SELEÇÃO DE TIPO
+// ============================================================
+function selecionarTipo(btn) {
+  document.querySelectorAll('.tipo-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  tipoSelecionado = btn.dataset.tipo;
+
+  // Auto-ajusta categoria se for Investimento
+  if (tipoSelecionado === 'Investimento') {
+    document.getElementById('categoria').value = 'Investimento';
+  } else if (tipoSelecionado === 'Receita') {
+    document.getElementById('categoria').value = 'Receita';
+  }
+}
+
+// ============================================================
+// ENVIAR LANÇAMENTO
+// ============================================================
+async function enviarLancamento() {
+  // Validação
+  const descricao  = document.getElementById('descricao').value.trim();
+  const valor      = parseFloat(document.getElementById('valor').value);
+  const data       = document.getElementById('data').value;
+  const categoria  = document.getElementById('categoria').value;
+  const pagamento  = document.getElementById('pagamento').value;
+  const parcela    = document.getElementById('parcela').value.trim();
+  const observacao = document.getElementById('observacao').value.trim();
+
+  if (!descricao)  return mostrarToast('Preencha a descrição', 'error');
+  if (!valor || valor <= 0) return mostrarToast('Informe um valor válido', 'error');
+  if (!data)       return mostrarToast('Informe a data', 'error');
+  if (!categoria)  return mostrarToast('Selecione uma categoria', 'error');
+  if (!pagamento)  return mostrarToast('Selecione o pagamento', 'error');
+
+  const url = localStorage.getItem('financas_url') || APPS_SCRIPT_URL;
+  if (!url || url === 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
+    return mostrarToast('Configure a URL na aba Config', 'error');
+  }
+
+  // UI de loading
+  const btn = document.getElementById('btnEnviar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Enviando...';
+
+  const payload = {
+    acao:       'lancar',
+    data:       data,
+    descricao:  descricao,
+    valor:      valor,
+    tipo:       tipoSelecionado,
+    categoria:  categoria,
+    pagamento:  pagamento,
+    parcela:    parcela,
+    observacao: observacao
+  };
+
+  try {
+    const resposta = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body:    JSON.stringify(payload)
+    });
+
+    const resultado = await resposta.json();
+
+    if (resultado.sucesso) {
+      mostrarToast('✅ Lançado com sucesso!', 'success');
+      limparFormulario();
+      // Vibração háptica se suportado
+      if (navigator.vibrate) navigator.vibrate(60);
+    } else {
+      mostrarToast('Erro: ' + (resultado.mensagem || 'tente novamente'), 'error');
+    }
+  } catch (erro) {
+    console.error(erro);
+    mostrarToast('Falha na conexão — tente novamente', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Lançar';
+  }
+}
+
+// ============================================================
+// LIMPAR FORMULÁRIO APÓS ENVIO
+// ============================================================
+function limparFormulario() {
+  document.getElementById('descricao').value  = '';
+  document.getElementById('valor').value      = '';
+  document.getElementById('parcela').value    = '';
+  document.getElementById('observacao').value = '';
+  document.getElementById('categoria').value  = '';
+  document.getElementById('pagamento').value  = '';
+
+  // Mantém tipo Gasto e data de hoje
+  document.querySelectorAll('.tipo-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector('[data-tipo="Gasto"]').classList.add('selected');
+  tipoSelecionado = 'Gasto';
+
+  const hoje = new Date().toISOString().split('T')[0];
+  document.getElementById('data').value = hoje;
+
+  // Foca na descrição para o próximo lançamento
+  setTimeout(() => document.getElementById('descricao').focus(), 100);
+}
+
+// ============================================================
+// CARREGAR RESUMO DA PLANILHA
+// ============================================================
+async function carregarResumo() {
+  const url = localStorage.getItem('financas_url') || APPS_SCRIPT_URL;
+  if (!url || url === 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
+    document.getElementById('r-mes').textContent = 'Configure a URL na aba Config';
+    return;
+  }
+
+  document.getElementById('r-mes').textContent = 'carregando...';
+
+  try {
+    const resp = await fetch(url + '?acao=resumo');
+    const dados = await resp.json();
+
+    if (!dados.sucesso) throw new Error(dados.mensagem);
+
+    // Preenche cards
+    document.getElementById('r-receita').textContent   = formatarMoeda(dados.receita);
+    document.getElementById('r-gasto').textContent     = formatarMoeda(dados.gasto);
+    document.getElementById('r-investido').textContent = formatarMoeda(dados.investido);
+    document.getElementById('r-mes').textContent       = dados.mes;
+
+    const saldo = dados.receita - dados.gasto - dados.investido;
+    const elSaldo = document.getElementById('r-saldo');
+    elSaldo.textContent = formatarMoeda(saldo);
+    elSaldo.className = 'card-value ' + (saldo >= 0 ? 'green' : 'red');
+
+    // Meta
+    document.getElementById('r-meta-valor').textContent = formatarMoeda(dados.metaAtual);
+    document.getElementById('r-meta-falta').textContent =
+      'Falta ' + formatarMoeda(100000 - dados.metaAtual);
+    const pct = Math.min((dados.metaAtual / 100000) * 100, 100);
+    document.getElementById('r-meta-barra').style.width = pct + '%';
+
+    // Indicador síntese
+    const ind = document.getElementById('indicador');
+    const indTxt = document.getElementById('indicador-texto');
+    if (saldo >= 2083) {
+      ind.className = 'indicador verde';
+      indTxt.textContent = '✅ No ritmo da meta — pode aportar mais';
+    } else if (saldo > 0) {
+      ind.className = 'indicador amarelo';
+      indTxt.textContent = '⚠️ Abaixo do ritmo — R$ ' + formatarMoeda(2083 - saldo) + ' a menos';
+    } else {
+      ind.className = 'indicador vermelho';
+      indTxt.textContent = '🔴 Mês no vermelho — revisar gastos';
+    }
+
+    // Alertas
+    const listaAlertas = document.getElementById('alertas-lista');
+    listaAlertas.innerHTML = '';
+    if (dados.alertas && dados.alertas.length > 0) {
+      dados.alertas.forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'alerta-item';
+        div.textContent = a;
+        listaAlertas.appendChild(div);
+      });
+    } else {
+      listaAlertas.innerHTML = '<div class="alerta-item">✅ Nenhum alerta no momento</div>';
+    }
+
+  } catch (erro) {
+    console.error(erro);
+    document.getElementById('r-mes').textContent = 'Erro ao carregar';
+    mostrarToast('Não foi possível carregar o resumo', 'error');
+  }
+}
+
+// ============================================================
+// SALVAR URL DE CONFIGURAÇÃO
+// ============================================================
+function salvarConfig() {
+  const url = document.getElementById('urlConfig').value.trim();
+  if (!url || !url.startsWith('https://')) {
+    return mostrarToast('URL inválida', 'error');
+  }
+  localStorage.setItem('financas_url', url);
+  urlScript = url;
+  mostrarToast('✅ URL salva!', 'success');
+}
+
+// ============================================================
+// TOAST DE FEEDBACK
+// ============================================================
+function mostrarToast(msg, tipo) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'toast ' + (tipo || '');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// FORMATAR MOEDA
+// ============================================================
+function formatarMoeda(valor) {
+  if (valor === undefined || valor === null || isNaN(valor)) return '—';
+  return 'R$ ' + Number(valor).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+// ============================================================
+// ENTER NO FORMULÁRIO
+// ============================================================
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('panel-lancamento').classList.contains('active')) {
+    enviarLancamento();
+  }
+});
+</script>
+
+</body>
+</html>
