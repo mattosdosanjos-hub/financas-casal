@@ -733,9 +733,10 @@
 
       <div class="meta-config-section">
         <div class="meta-cfg-row">
-          <div class="meta-cfg-item" onclick="toggleDetalhe('receita')">
-            <div class="meta-cfg-val" id="m-receita">—</div>
-            <div class="meta-cfg-label">Receita do mês</div>
+          <div class="meta-cfg-item proj-item" onclick="toggleDetalhe('receita')">
+            <div class="meta-cfg-val" id="m-receita-principal">—</div>
+            <div class="meta-cfg-label" id="m-receita-label">Projeção de Receita</div>
+            <div class="meta-cfg-sub">toque para editar</div>
           </div>
           <div class="meta-cfg-item" onclick="toggleDetalhe('fixos')">
             <div class="meta-cfg-val" id="m-fixos">—</div>
@@ -754,6 +755,34 @@
         </div>
 
         <!-- Detalhes expansíveis -->
+        <div class="detalhe-expand" id="det-receita">
+          <div style="margin-bottom:10px">
+            <label class="lbl">Projeção de receita deste mês</label>
+            <div class="fatura-input-row">
+              <div class="fatura-input-wrap">
+                <span class="fatura-prefix">R$</span>
+                <input class="fatura-input" type="number" inputmode="decimal" placeholder="ex: 9500"
+                  id="input-projecao" value="">
+              </div>
+              <button class="fatura-salvar" onclick="salvarProjecaoBtn()">Salvar</button>
+            </div>
+          </div>
+          <div id="comparacao-receita" style="display:none">
+            <div class="detalhe-item">
+              <div class="detalhe-nome">📐 Projetado</div>
+              <div class="detalhe-valor" id="comp-projetado">—</div>
+            </div>
+            <div class="detalhe-item">
+              <div class="detalhe-nome">✅ Realizado (real)</div>
+              <div class="detalhe-valor" id="comp-realizado">—</div>
+            </div>
+          </div>
+          <div class="meta-cfg-sub" style="margin-top:8px;line-height:1.5">
+            Até você lançar a receita real (salário/pró-labore), o cálculo de
+            "Disponível para gastar" usa esta projeção. Depois que a receita
+            real entrar, ela passa a valer automaticamente.
+          </div>
+        </div>
         <div class="detalhe-expand" id="det-fixos"></div>
         <div class="detalhe-expand" id="det-cartao"></div>
       </div>
@@ -977,7 +1006,8 @@
     <div class="modal-sub" id="fm-mes-label">Resumo de —</div>
 
     <div class="resumo-fechamento">
-      <div class="rf-row"><span class="rf-label">💰 Receita total</span><span class="rf-val g" id="fm-receita">—</span></div>
+      <div class="rf-row"><span class="rf-label">📐 Projetado</span><span class="rf-val" id="fm-projetado">—</span></div>
+      <div class="rf-row"><span class="rf-label">💰 Receita real</span><span class="rf-val g" id="fm-receita">—</span></div>
       <div class="rf-row"><span class="rf-label">💸 Gastos totais</span><span class="rf-val r" id="fm-gasto">—</span></div>
       <div class="rf-row"><span class="rf-label">💳 Gasto com cartões</span><span class="rf-val" id="fm-cartao">—</span></div>
       <div class="rf-row"><span class="rf-label">📈 Investido no mês</span><span class="rf-val" id="fm-investido">—</span></div>
@@ -986,6 +1016,8 @@
         <span class="rf-final-val" id="fm-saldo">—</span>
       </div>
     </div>
+
+    <div class="modal-sub" style="margin-top:-8px;margin-bottom:14px" id="fm-aviso-receita"></div>
 
     <div class="modal-actions">
       <button class="btn-modal-sec" onclick="fecharModalFechar()">Voltar</button>
@@ -1046,6 +1078,10 @@ function irAba(aba, btn) {
 }
 
 function toggleDetalhe(tipo) {
+  if (tipo === 'receita') {
+    const el = document.getElementById('det-receita');
+    el.classList.toggle('open');
+  }
   if (tipo === 'fixos') {
     const el = document.getElementById('det-fixos');
     el.classList.toggle('open');
@@ -1061,7 +1097,11 @@ function toggleDetalhe(tipo) {
 // ═══════════════════════════════════════════
 function calcularDisponivel() {
   const meta    = getMeta();
-  const receita = cache ? cache.receita : 0;
+  const receitaReal      = cache ? (cache.receita || 0) : 0;
+  const receitaProjetada = cache ? (cache.receitaProjetada || 0) : 0;
+
+  // Usa a receita REAL quando ela já existir (>0); senão, cai pra projeção
+  const receita = receitaReal > 0 ? receitaReal : receitaProjetada;
 
   // Gastos fixos: prioriza dado real da planilha; usa manual só se preenchido
   const fixasManual = getFixasManual();
@@ -1101,10 +1141,34 @@ function calcularDisponivel() {
   document.getElementById('m-bar-usado').textContent  = 'Usado: ' + moeda(totalFaturas);
   document.getElementById('m-bar-limite').textContent = 'Limite: ' + moeda(limiteCartao);
 
-  // Cards
-  document.getElementById('m-receita').textContent      = moeda(receita || 0);
+  // Card principal de receita — mostra Real se existir, senão Projeção
+  const elReceitaVal = document.getElementById('m-receita-principal');
+  const elReceitaLabel = document.getElementById('m-receita-label');
+  if (receitaReal > 0) {
+    elReceitaVal.textContent = moeda(receitaReal);
+    elReceitaLabel.textContent = 'Receita do Mês (real)';
+  } else {
+    elReceitaVal.textContent = moeda(receitaProjetada);
+    elReceitaLabel.textContent = 'Projeção de Receita';
+  }
   document.getElementById('m-fixos').textContent        = moeda(fixas);
   document.getElementById('m-meta-guardar').textContent = moeda(meta);
+
+  // Preenche o campo de input com a projeção salva (se ainda não foi editado pelo usuário)
+  const inputProjecao = document.getElementById('input-projecao');
+  if (inputProjecao && document.activeElement !== inputProjecao && !inputProjecao.value) {
+    inputProjecao.value = receitaProjetada > 0 ? receitaProjetada : '';
+  }
+
+  // Mostra comparação Projetado x Realizado dentro do detalhe expansível
+  const compBox = document.getElementById('comparacao-receita');
+  if (receitaProjetada > 0 || receitaReal > 0) {
+    compBox.style.display = 'block';
+    document.getElementById('comp-projetado').textContent = moeda(receitaProjetada);
+    document.getElementById('comp-realizado').textContent = receitaReal > 0 ? moeda(receitaReal) : 'ainda não lançada';
+  } else {
+    compBox.style.display = 'none';
+  }
 
   // NOVO: Gastos com Cartão = soma de todos os cartões no mês (vem do servidor)
   const totalCartoesServidor = cache ? (cache.totalCartoes || 0) : 0;
@@ -1255,6 +1319,38 @@ async function salvarFaturaBtn(nomeCartao) {
     }
   } catch(e) {
     toast('Salvo no celular, mas falhou ao sincronizar', 'err');
+  }
+}
+
+// ═══════════════════════════════════════════
+// PROJEÇÃO DE RECEITA
+// ═══════════════════════════════════════════
+async function salvarProjecaoBtn() {
+  const valorStr = document.getElementById('input-projecao').value;
+  const valor = parseFloat(valorStr);
+
+  if (isNaN(valor) || valor < 0) return toast('Informe um valor válido', 'err');
+
+  const url = getUrl();
+  if (!url || url === 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') return toast('Configure a URL ⚙️', 'err');
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ acao: 'salvarProjecao', valor: valor })
+    });
+    const r = await res.json();
+    if (r.sucesso) {
+      toast('✅ Projeção salva!', 'ok');
+      cache = null;
+      carregarTudo();
+      if (navigator.vibrate) navigator.vibrate(40);
+    } else {
+      toast('Erro: ' + (r.mensagem||''), 'err');
+    }
+  } catch(e) {
+    toast('Falha ao salvar projeção', 'err');
   }
 }
 
@@ -1485,13 +1581,25 @@ async function carregarHistorico() {
 function abrirFecharMes() {
   if (!cache) { toast('Atualize os dados primeiro', 'err'); return; }
 
+  const projetado = cache.receitaProjetada || 0;
+  const receitaReal = cache.receita || 0;
+
   document.getElementById('fm-mes-label').textContent = 'Resumo de ' + (cache.mes || '—');
-  document.getElementById('fm-receita').textContent   = moeda(cache.receita);
+  document.getElementById('fm-projetado').textContent = moeda(projetado);
+  document.getElementById('fm-receita').textContent   = moeda(receitaReal);
   document.getElementById('fm-gasto').textContent     = moeda(cache.gasto);
   document.getElementById('fm-cartao').textContent    = moeda(cache.totalCartoes || 0);
   document.getElementById('fm-investido').textContent = moeda(cache.investido);
 
-  const saldo = cache.receita - cache.gasto - cache.investido;
+  const avisoEl = document.getElementById('fm-aviso-receita');
+  if (receitaReal === 0) {
+    avisoEl.innerHTML = '⚠️ Você ainda não lançou a receita real deste mês. O fechamento vai registrar R$ 0,00 como realizado.';
+    avisoEl.style.color = 'var(--coral2)';
+  } else {
+    avisoEl.innerHTML = '';
+  }
+
+  const saldo = receitaReal - cache.gasto - cache.investido;
   const elSaldo = document.getElementById('fm-saldo');
   elSaldo.textContent = moeda(saldo);
   elSaldo.style.color = saldo >= 0 ? 'var(--mint2)' : 'var(--coral)';
@@ -1503,7 +1611,24 @@ function fecharModalFechar() {
   document.getElementById('modalFechar').classList.remove('open');
 }
 
-function confirmarFechamento() {
+async function confirmarFechamento() {
+  const receitaReal = cache ? (cache.receita || 0) : 0;
+  const url = getUrl();
+
+  // Registra a comparação Projetado x Real na planilha, se houver URL configurada
+  if (url && url !== 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ acao: 'fecharMes', receitaReal: receitaReal })
+      });
+    } catch(e) {
+      // Mesmo se falhar o registro da projeção, segue com o fechamento local
+      console.error('Falha ao registrar fechamento na planilha', e);
+    }
+  }
+
   // Resumo/confirmação visual — não trava nada na planilha,
   // apenas limpa as faturas salvas localmente para começar o próximo mês do zero
   faturasSalvas = {};
