@@ -1036,8 +1036,6 @@ let tipoSel = 'Gasto';
 let cache   = null;
 let cacheInvest = null;
 
-let faturasSalvas = JSON.parse(localStorage.getItem('fin_faturas') || '{}');
-
 function getUrl()        { return localStorage.getItem('fin_url')        || APPS_SCRIPT_URL_DEFAULT; }
 function getMeta()       { return parseFloat(localStorage.getItem('fin_meta')  || '3000'); }
 function getFixasManual(){ return localStorage.getItem('fin_fixas_manual') || ''; }
@@ -1110,8 +1108,9 @@ function calcularDisponivel() {
 
   const limiteCartao = Math.max(receita - fixas - meta, 0);
 
-  let totalFaturas = 0;
-  Object.values(faturasSalvas).forEach(f => { totalFaturas += parseFloat(f.valor) || 0; });
+  // Total usado: vem direto do servidor (soma de todos os cartões no mês),
+  // sincronizado entre os celulares — não depende mais de dado local
+  const totalFaturas = cache ? (cache.totalCartoes || 0) : 0;
 
   const disponivel = limiteCartao - totalFaturas;
   const pct = limiteCartao > 0 ? Math.min((totalFaturas / limiteCartao) * 100, 100) : 0;
@@ -1219,11 +1218,19 @@ function renderFaturas() {
   const lista   = document.getElementById('faturas-lista');
   lista.innerHTML = '';
 
-  const dataRef = hoje.toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
-  document.getElementById('m-data-ref').textContent = 'Atualizado ' + dataRef;
+  const dataRef = hoje.toLocaleDateString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  document.getElementById('m-data-ref').textContent = 'Sincronizado ' + dataRef;
+
+  // Fonte de verdade: o total por cartão que já vem da planilha
+  // (soma de todos os gastos daquele cartão no mês — sincronizado entre os dois celulares)
+  const gastosPorCartaoServidor = {};
+  if (cache && cache.gastoPorCartao) {
+    cache.gastoPorCartao.forEach(c => { gastosPorCartaoServidor[c.nome] = c.total; });
+  }
 
   cartoes.forEach(c => {
-    const salvo = faturasSalvas[c.nome] || {};
+    const valorAtual = gastosPorCartaoServidor[c.nome] || 0;
+
     const diasParaFechar = c.fecha >= diaHoje
       ? c.fecha - diaHoje
       : new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate() - diaHoje + c.fecha;
@@ -1236,14 +1243,15 @@ function renderFaturas() {
     const meta   = getMeta();
     const fixasManual = getFixasManual();
     const fixas  = fixasManual ? parseFloat(fixasManual) : (cache ? cache.totalFixas||0 : 0);
-    const rec    = cache ? cache.receita : 0;
+    const receitaReal = cache ? (cache.receita || 0) : 0;
+    const receitaProjetada = cache ? (cache.receitaProjetada || 0) : 0;
+    const rec = receitaReal > 0 ? receitaReal : receitaProjetada;
     const limTotal = Math.max(rec - fixas - meta, 0);
     const limPorCartao = limTotal / cartoes.length;
-    const valorSalvo = parseFloat(salvo.valor) || 0;
 
     let statusHtml = '';
-    if (valorSalvo > 0) {
-      const restante = limPorCartao - valorSalvo;
+    if (valorAtual > 0) {
+      const restante = limPorCartao - valorAtual;
       if (restante >= 0) {
         statusHtml = `<div class="fatura-status ok">✅ Pode gastar mais ${moeda(restante)} neste cartão</div>`;
       } else {
@@ -1260,28 +1268,17 @@ function renderFaturas() {
         <div class="fatura-input-row">
           <div class="fatura-input-wrap">
             <span class="fatura-prefix">R$</span>
-            <input class="fatura-input" type="number" inputmode="decimal" placeholder="total da fatura"
-              value="${valorSalvo > 0 ? valorSalvo : ''}"
-              id="fi-${c.nome.replace(/\s/g,'_')}"
-              onchange="salvarFatura('${c.nome}', this.value)">
+            <input class="fatura-input" type="number" inputmode="decimal" placeholder="ajustar total da fatura"
+              value="${valorAtual > 0 ? valorAtual : ''}"
+              id="fi-${c.nome.replace(/\s/g,'_')}">
           </div>
           <button class="fatura-salvar" onclick="salvarFaturaBtn('${c.nome}')">Salvar</button>
         </div>
-        ${salvo.quando ? `<div class="fatura-ultimo">Última atualização: ${salvo.quando}</div>` : ''}
+        <div class="fatura-ultimo">Valor sincronizado da planilha — visível para vocês dois</div>
         ${statusHtml}
       </div>
     `;
   });
-}
-
-function salvarFatura(nomeCartao, valor) {
-  const v = parseFloat(valor);
-  if (isNaN(v) || v < 0) return;
-  const hoje = new Date();
-  const quando = hoje.toLocaleDateString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-  faturasSalvas[nomeCartao] = { valor: v, quando };
-  localStorage.setItem('fin_faturas', JSON.stringify(faturasSalvas));
-  calcularDisponivel();
 }
 
 async function salvarFaturaBtn(nomeCartao) {
@@ -1291,15 +1288,15 @@ async function salvarFaturaBtn(nomeCartao) {
 
   if (isNaN(valor) || valor < 0) return toast('Informe um valor válido', 'err');
 
-  // Salva localmente primeiro (resposta visual imediata)
-  salvarFatura(nomeCartao, valorStr);
-  renderFaturas();
-
   const url = getUrl();
   if (!url || url === 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
-    toast('✅ Salvo no celular (configure a URL para sincronizar com a planilha)', 'ok');
-    return;
+    return toast('Configure a URL na aba Config ⚙️ para sincronizar', 'err');
   }
+
+  const btn = document.querySelector(`#${id}`).nextElementSibling;
+  const textoOriginal = btn.textContent;
+  btn.textContent = '...';
+  btn.disabled = true;
 
   // Envia para a planilha — substitui (não soma) o lançamento da fatura
   // deste cartão neste mês, já que o valor digitado é o total acumulado
@@ -1311,14 +1308,18 @@ async function salvarFaturaBtn(nomeCartao) {
     });
     const r = await res.json();
     if (r.sucesso) {
-      toast('✅ Fatura salva e sincronizada!', 'ok');
-      cache = null; // força recarregar o resumo na próxima leitura
+      toast('✅ Sincronizado — visível para vocês dois agora', 'ok');
+      cache = null; // força recarregar do servidor
+      await carregarTudo(); // já busca o valor real de volta e re-renderiza
       if (navigator.vibrate) navigator.vibrate(40);
     } else {
-      toast('Salvo no celular, mas falhou na planilha: ' + (r.mensagem||''), 'err');
+      toast('Falhou ao sincronizar: ' + (r.mensagem||''), 'err');
     }
   } catch(e) {
-    toast('Salvo no celular, mas falhou ao sincronizar', 'err');
+    toast('Falha ao sincronizar — tente novamente', 'err');
+  } finally {
+    btn.textContent = textoOriginal;
+    btn.disabled = false;
   }
 }
 
@@ -1624,19 +1625,14 @@ async function confirmarFechamento() {
         body: JSON.stringify({ acao: 'fecharMes', receitaReal: receitaReal })
       });
     } catch(e) {
-      // Mesmo se falhar o registro da projeção, segue com o fechamento local
       console.error('Falha ao registrar fechamento na planilha', e);
     }
   }
 
-  // Resumo/confirmação visual — não trava nada na planilha,
-  // apenas limpa as faturas salvas localmente para começar o próximo mês do zero
-  faturasSalvas = {};
-  localStorage.setItem('fin_faturas', JSON.stringify(faturasSalvas));
-  renderFaturas();
-  calcularDisponivel();
+  // Resumo/confirmação visual — as faturas já vêm do servidor filtradas pelo
+  // mês corrente, então o próximo mês começa zerado automaticamente
   fecharModalFechar();
-  toast('✅ Mês fechado! Faturas zeradas para o próximo mês', 'ok');
+  toast('✅ Mês fechado com sucesso', 'ok');
   if (navigator.vibrate) navigator.vibrate([40,40,40]);
 }
 
