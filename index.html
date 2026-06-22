@@ -1220,13 +1220,42 @@ function salvarFatura(nomeCartao, valor) {
   calcularDisponivel();
 }
 
-function salvarFaturaBtn(nomeCartao) {
+async function salvarFaturaBtn(nomeCartao) {
   const id    = 'fi-' + nomeCartao.replace(/\s/g, '_');
-  const valor = document.getElementById(id).value;
-  salvarFatura(nomeCartao, valor);
+  const valorStr = document.getElementById(id).value;
+  const valor = parseFloat(valorStr);
+
+  if (isNaN(valor) || valor < 0) return toast('Informe um valor válido', 'err');
+
+  // Salva localmente primeiro (resposta visual imediata)
+  salvarFatura(nomeCartao, valorStr);
   renderFaturas();
-  toast('✅ Fatura salva!', 'ok');
-  if (navigator.vibrate) navigator.vibrate(40);
+
+  const url = getUrl();
+  if (!url || url === 'COLE_AQUI_A_URL_DO_SEU_WEB_APP') {
+    toast('✅ Salvo no celular (configure a URL para sincronizar com a planilha)', 'ok');
+    return;
+  }
+
+  // Envia para a planilha — substitui (não soma) o lançamento da fatura
+  // deste cartão neste mês, já que o valor digitado é o total acumulado
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ acao: 'lancarFatura', cartao: nomeCartao, valor: valor })
+    });
+    const r = await res.json();
+    if (r.sucesso) {
+      toast('✅ Fatura salva e sincronizada!', 'ok');
+      cache = null; // força recarregar o resumo na próxima leitura
+      if (navigator.vibrate) navigator.vibrate(40);
+    } else {
+      toast('Salvo no celular, mas falhou na planilha: ' + (r.mensagem||''), 'err');
+    }
+  } catch(e) {
+    toast('Salvo no celular, mas falhou ao sincronizar', 'err');
+  }
 }
 
 // ═══════════════════════════════════════════
