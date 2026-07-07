@@ -1,8 +1,8 @@
 // Service worker — cache do shell para funcionar offline e abrir instantâneo.
-const CACHE = 'ftd-v1';
+const CACHE = 'ftd-v2';
 const SHELL = [
   '.', 'index.html', 'css/app.css',
-  'js/app.js', 'js/store.js', 'js/calc.js', 'js/charts.js', 'js/ia.js',
+  'js/app.js', 'js/store.js', 'js/calc.js', 'js/charts.js', 'js/ia.js', 'js/sync.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 
@@ -19,7 +19,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // nunca intercepta chamadas de API (IA)
+  // nunca intercepta chamadas de API (IA / sincronização)
   if (url.origin !== location.origin && !url.host.includes('fonts.')) return;
   if (e.request.method !== 'GET') return;
 
