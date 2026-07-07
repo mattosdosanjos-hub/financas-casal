@@ -1,4 +1,4 @@
-// Funções puras: formatação, mês-fatura e resumo do mês.
+// Funções puras: formatação, mês-fatura, ciclos de fatura e resumo do mês.
 
 export const DINHEIRO_PIX = 'Dinheiro/Pix';
 
@@ -6,17 +6,23 @@ export function moeda(v) {
   return (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// versão compacta para gráficos: R$ 1,2k / R$ 12k
+export function moedaCurta(v) {
+  const abs = Math.abs(v);
+  if (abs >= 100000) return `${v < 0 ? '-' : ''}${Math.round(abs / 1000)}k`;
+  if (abs >= 10000) return `${v < 0 ? '-' : ''}${(abs / 1000).toFixed(1).replace('.', ',')}k`;
+  if (abs >= 1000) return `${v < 0 ? '-' : ''}${(abs / 1000).toFixed(1).replace('.', ',')}k`;
+  return `${v < 0 ? '-' : ''}${Math.round(abs)}`;
+}
+
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-// 'YYYY-MM' -> 'Jul/2026'
 export function mesLabel(mesKey) {
   const [ano, mes] = mesKey.split('-').map(Number);
   return `${MESES[mes - 1]}/${ano}`;
 }
 
-export function mesKeyDe(dataISO) { // 'YYYY-MM-DD' -> 'YYYY-MM'
-  return dataISO.slice(0, 7);
-}
+export function mesKeyDe(dataISO) { return dataISO.slice(0, 7); }
 
 export function hojeISO() {
   const d = new Date();
@@ -51,7 +57,18 @@ export function calcularMesFatura(dataISO, pagamento, cartoes) {
   return dia <= cartao.diaFechamento ? mesKey : addMeses(mesKey, 1);
 }
 
-// Dias até o próximo fechamento do cartão (a partir de hoje).
+// Ciclo (fatura) aberto de um cartão hoje: se ainda não fechou, é o mês corrente;
+// se já fechou, é o mês seguinte.
+export function cicloAberto(cartao, hoje = new Date()) {
+  const mes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  return hoje.getDate() <= cartao.diaFechamento ? mes : addMeses(mes, 1);
+}
+
+// Último ciclo que já fechou.
+export function ultimoCicloFechado(cartao, hoje = new Date()) {
+  return addMeses(cicloAberto(cartao, hoje), -1);
+}
+
 export function diasParaFechar(cartao, hoje = new Date()) {
   const d = hoje.getDate();
   if (d <= cartao.diaFechamento) return cartao.diaFechamento - d;
@@ -59,12 +76,48 @@ export function diasParaFechar(cartao, hoje = new Date()) {
   return (ultimoDia - d) + Math.min(cartao.diaFechamento, new Date(hoje.getFullYear(), hoje.getMonth() + 2, 0).getDate());
 }
 
+// Último valor de fatura informado manualmente para um cartão num ciclo.
+export function faturaInformada(dados, cartaoId, ciclo) {
+  const regs = dados.registrosFatura
+    .filter(r => r.cartaoId === cartaoId && r.ciclo === ciclo)
+    .sort((a, b) => b.m - a.m);
+  return regs[0] || null;
+}
+
+// Soma das despesas fixas ativas pagas num cartão (para não contar duas vezes
+// ao comparar a fatura informada com o limite disponível).
+export function fixasNoCartao(dados, nomeCartao) {
+  return dados.despesasFixas
+    .filter(f => f.ativa && f.pagamento === nomeCartao)
+    .reduce((s, f) => s + f.valor, 0);
+}
+
+// Gasto "efetivo" de cada cartão num ciclo:
+//   max( lançamentos avulsos no app , fatura (fechada ou informada) − fixas do cartão )
+// A fatura do banco é a fonte da verdade quando informada; os lançamentos
+// cobrem o que ainda não foi refletido nela.
+export function gastoCartoesEfetivo(dados, mesKey) {
+  const porCartao = {};
+  let total = 0, totalLancado = 0;
+  for (const c of dados.cartoes.filter(c => c.ativo)) {
+    const lancado = dados.lancamentos
+      .filter(l => l.tipo === 'Gasto' && l.pagamento === c.nome && l.mesFatura === mesKey && !l.fixaId)
+      .reduce((s, l) => s + l.valor, 0);
+    const fechada = dados.faturasFechadas?.[c.id]?.[mesKey]?.valor;
+    const informada = faturaInformada(dados, c.id, mesKey)?.valor;
+    const bruta = fechada ?? informada;
+    const faturaAjustada = bruta != null ? Math.max(bruta - fixasNoCartao(dados, c.nome), 0) : null;
+    const efetivo = faturaAjustada != null ? Math.max(lancado, faturaAjustada) : lancado;
+    porCartao[c.nome] = { lancado, fatura: bruta ?? null, fechada: fechada != null, efetivo };
+    total += efetivo;
+    totalLancado += lancado;
+  }
+  return { porCartao, total, totalLancado };
+}
+
 // ---------- resumo do mês ----------
-// receita = receita real (se lançada) senão a projetada
-// limiteCartao = max(receita - gastosFixos - metaAporte, 0)
-// disponivel = limiteCartao - gasto em cartões no mês-fatura
 export function resumoMes(dados, mesKey) {
-  const { lancamentos, despesasFixas, cartoes, config, projecoes, aportes } = dados;
+  const { lancamentos, despesasFixas, config, projecoes, aportes } = dados;
   const doMes = lancamentos.filter(l => l.mesFatura === mesKey);
 
   const receitaReal = doMes.filter(l => l.tipo === 'Receita').reduce((s, l) => s + l.valor, 0);
@@ -74,28 +127,24 @@ export function resumoMes(dados, mesKey) {
 
   const gastosFixos = despesasFixas.filter(f => f.ativa).reduce((s, f) => s + f.valor, 0);
 
-  // gastos de cartão: tipo Gasto, pagamento = um dos cartões, exceto os gerados por fixas
-  const nomesCartoes = new Set(cartoes.map(c => c.nome));
-  const gastosCartaoLanc = doMes.filter(l =>
-    l.tipo === 'Gasto' && nomesCartoes.has(l.pagamento) && !l.fixaId);
-  const totalCartoes = gastosCartaoLanc.reduce((s, l) => s + l.valor, 0);
+  const cartoesEf = gastoCartoesEfetivo(dados, mesKey);
+  const totalCartoes = cartoesEf.total;
 
-  const porCartao = {};
-  for (const c of cartoes.filter(c => c.ativo)) porCartao[c.nome] = 0;
-  for (const l of gastosCartaoLanc) porCartao[l.pagamento] = (porCartao[l.pagamento] ?? 0) + l.valor;
-
+  const nomesCartoes = new Set(dados.cartoes.map(c => c.nome));
   const gastosAvulsos = doMes
     .filter(l => l.tipo === 'Gasto' && !nomesCartoes.has(l.pagamento) && !l.fixaId)
     .reduce((s, l) => s + l.valor, 0);
 
-  const gastoTotal = doMes.filter(l => l.tipo === 'Gasto').reduce((s, l) => s + l.valor, 0);
+  // gasto total do mês usando o efetivo dos cartões (fatura ou lançado, o maior)
+  const gastoLancadoTotal = doMes.filter(l => l.tipo === 'Gasto').reduce((s, l) => s + l.valor, 0);
+  const gastoTotal = gastoLancadoTotal - cartoesEf.totalLancado + totalCartoes;
+
   const investidoMes = aportes.filter(a => a.mes === mesKey).reduce((s, a) => s + a.valor, 0);
 
   const metaAporte = config.metaMensalAporte || 0;
   const limiteCartao = Math.max(receita - gastosFixos - metaAporte, 0);
   const disponivel = limiteCartao - totalCartoes;
 
-  // gasto por categoria (tipo Gasto, inclui fixas geradas)
   const porCategoria = {};
   for (const l of doMes.filter(l => l.tipo === 'Gasto')) {
     porCategoria[l.categoriaId] = (porCategoria[l.categoriaId] ?? 0) + l.valor;
@@ -103,7 +152,7 @@ export function resumoMes(dados, mesKey) {
 
   return {
     mesKey, receita, receitaReal, receitaProjetada, gastosFixos,
-    totalCartoes, porCartao, gastosAvulsos, gastoTotal, investidoMes,
+    totalCartoes, cartoesEf, gastosAvulsos, gastoTotal, investidoMes,
     metaAporte, limiteCartao, disponivel, porCategoria,
     fechado: !!projecao.fechadoEm,
   };
@@ -114,8 +163,15 @@ export function alertas(dados, resumo, categorias) {
   const out = [];
   const hoje = new Date();
   for (const c of dados.cartoes.filter(c => c.ativo)) {
+    const cicloFechado = ultimoCicloFechado(c, hoje);
+    const temMovimento = dados.lancamentos.some(l => l.pagamento === c.nome && l.mesFatura === cicloFechado)
+      || faturaInformada(dados, c.id, cicloFechado);
+    if (temMovimento && !dados.faturasFechadas?.[c.id]?.[cicloFechado]) {
+      out.push({ icone: '🧾', txt: `A fatura ${mesLabel(cicloFechado)} do ${c.nome} fechou — informe o valor final.`, acao: 'fechar-fatura', cartaoId: c.id, ciclo: cicloFechado });
+      continue;
+    }
     const dias = diasParaFechar(c, hoje);
-    if (dias <= 2) out.push({ icone: '🔴', txt: `${c.nome} fecha em ${dias === 0 ? 'hoje' : dias + 'd'} — confira a fatura.` });
+    if (dias <= 2) out.push({ icone: '🔴', txt: `${c.nome} fecha ${dias === 0 ? 'hoje' : 'em ' + dias + 'd'} — atualize o valor da fatura.` });
     else if (dias <= 5) out.push({ icone: '⚠️', txt: `${c.nome} fecha em ${dias} dias.` });
   }
   for (const cat of categorias) {
@@ -129,7 +185,7 @@ export function alertas(dados, resumo, categorias) {
   }
   const dia = hoje.getDate();
   if (dia === 1) out.push({ icone: '📌', txt: 'Início do mês: revise as parcelas e a projeção de receita.' });
-  if (dia >= 14 && dia <= 16) out.push({ icone: '👀', txt: 'Meio do mês: vale conferir a fatura acumulada dos cartões.' });
+  if (dia >= 14 && dia <= 16) out.push({ icone: '👀', txt: 'Meio do mês: vale atualizar o valor das faturas.' });
   return out;
 }
 
@@ -140,7 +196,14 @@ export function insights(dados, resumo, resumoAnterior, categorias) {
   const diaDoMes = hoje.getDate();
   const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
 
-  // maior categoria
+  // diferença entre fatura informada e lançado (gastos não categorizados)
+  for (const [nome, info] of Object.entries(resumo.cartoesEf.porCartao)) {
+    if (info.fatura != null && info.efetivo > info.lancado + 1) {
+      out.push({ icone: '🕵️', txt: `${nome}: ${moeda(info.efetivo - info.lancado)} da fatura ainda não foram lançados por categoria.` });
+      break; // um por vez para não poluir
+    }
+  }
+
   const entradas = Object.entries(resumo.porCategoria).sort((a, b) => b[1] - a[1]);
   if (entradas.length) {
     const [catId, valor] = entradas[0];
@@ -150,7 +213,6 @@ export function insights(dados, resumo, resumoAnterior, categorias) {
     }
   }
 
-  // ritmo de gasto vs projeção
   if (resumo.limiteCartao > 0 && diaDoMes > 3) {
     const ritmo = resumo.totalCartoes / diaDoMes;
     const projecaoFim = ritmo * diasNoMes;
@@ -161,7 +223,6 @@ export function insights(dados, resumo, resumoAnterior, categorias) {
     }
   }
 
-  // comparação com mês anterior
   if (resumoAnterior && resumoAnterior.gastoTotal > 0 && resumo.gastoTotal > 0) {
     const diff = resumo.gastoTotal - resumoAnterior.gastoTotal;
     const pct = Math.round(Math.abs(diff) / resumoAnterior.gastoTotal * 100);
@@ -172,7 +233,6 @@ export function insights(dados, resumo, resumoAnterior, categorias) {
     }
   }
 
-  // aporte do mês
   if (resumo.metaAporte > 0) {
     if (resumo.investidoMes >= resumo.metaAporte) {
       out.push({ icone: '💎', txt: `Meta de aporte do mês batida: ${moeda(resumo.investidoMes)} investidos.` });
